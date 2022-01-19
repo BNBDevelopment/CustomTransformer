@@ -33,14 +33,14 @@ def feed_forward(d_model, d_ff):
 
 class Block(torch.nn.Module):
 
-    def __init__(self, d_model, d_ff, num_heads, dropout):
+    def __init__(self, d_model, d_ff, num_heads, dropout, num_rand_glbl_tkns):
         super().__init__()
 
         seq_dimensions = max(d_model // num_heads, 1)
 
-        self.maskedMultiHeadAttention = AddedNormalizedAttention(MultiheadAttention(num_heads, d_model, seq_dimensions), d_model, dropout)
+        self.maskedMultiHeadAttention = AddedNormalizedAttention(MultiheadAttention(num_heads, d_model, seq_dimensions, num_rand_glbl_tkns), d_model, dropout)
 
-        self.multiHeadAttention = AddedNormalizedAttention(MultiheadAttention(num_heads, d_model, seq_dimensions), d_model, dropout)
+        self.multiHeadAttention = AddedNormalizedAttention(MultiheadAttention(num_heads, d_model, seq_dimensions, num_rand_glbl_tkns), d_model, dropout)
 
         self.feedForward = AddedNormalizedAttention(feed_forward(d_model, d_ff), d_model, dropout)
 
@@ -60,12 +60,14 @@ class Decoder(torch.nn.Module):
 
     dropout = 0.1
 
+    num_rand_glbl_tkns = 3
+
     def __init__(self, d_model, d_ff, num_heads, number_of_blocks, dropout):
         super().__init__()
 
         block_list = []
         for count in range(self.number_of_blocks):
-            block_list.append(Block(self.d_model, self.d_ff, self.num_heads, self.dropout))
+            block_list.append(Block(self.d_model, self.d_ff, self.num_heads, self.dropout, self.num_rand_glbl_tkns))
 
         self.layers = torch.nn.ModuleList(block_list)
 
