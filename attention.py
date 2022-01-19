@@ -11,13 +11,32 @@ class AttentionHead(torch.nn.Module):
 
     def forward(self, q, k, v):
         sdp = self.scaledDotProductAttention(self.query(q), self.key(k), self.value(v))
+        return sdp
 
+    def createMask(self, sequence_len):
+        #mask = torch.ones(1, sequence_len, sequence_len)
+        #for i in range(sequence_len):
+        #    for j in range(sequence_len):
+        #        mask[:, i, j] = 0
+        #return mask
 
-    def scaledDotProductAttention(Q, K, V):
-        num = torch.dot(Q, K.transpose())
+        mask = (torch.triu(torch.ones(sequence_len, sequence_len)) == 1).transpose(0, 1)
+        mask = mask.float().masked_fill(mask == 0, float('-inf')).masked_fill(mask == 1, float(0.0))
+        return mask
+
+    def scaledDotProductAttention(self, Q, K, V):
+        #num = torch.dot(Q, K.transpose(1,2))
+        num = torch.matmul(Q, K.transpose(1,2))
         denom = K.size(-1) ** 0.5
-        softmax = torch.nn.softmax(num / denom)
-        attentionQKV = torch.dot(softmax, V)
+
+        #Should be -1 instead of two to consistently get last?
+        mask = self.createMask(Q.size(1))
+        num = num + mask
+
+        #softmax = torch.nn.softmax(num / denom)
+        softmax = torch.nn.functional.softmax(num/denom, dim=-1)
+        #attentionQKV = torch.dot(softmax, V)
+        attentionQKV = torch.matmul(softmax, V)
         return attentionQKV
 
 
@@ -25,31 +44,32 @@ class AttentionHead(torch.nn.Module):
 class MultiheadAttention(torch.nn.Module):
 
 
-    def __init__(self, hidden_dimensions, num_layers, output_dimensions):
+    def __init__(self, number_of_heads, model_dimensions, seq_dimensions):
         super().__init__()
 
 
-        attentionHeads = [AttentionHead(hidden_dimensions, num_layers, output_dimensions)]
-        for i in range(self.number_attention_heads):
-            attentionHeads.append()
+        attentionHeads = []
+        for i in range(number_of_heads):
+            attentionHeads.append(AttentionHead(model_dimensions, seq_dimensions, seq_dimensions))
         self.heads = torch.nn.ModuleList(attentionHeads)
 
-        self.linear = torch.nn.Linear(self.number_attention_heads * output_dimensions * hidden_dimensions)
+        self.linear = torch.nn.Linear(number_of_heads * seq_dimensions, model_dimensions)
 
     def forward(self, Q, K, V):
         head_values = []
         for head in self.heads:
-            head_values.append(head(Q, K, V))
+            head_values.append(head.forward(Q, K, V))
 
         #USing concatention NOT summation
-        self.linear(torch.concat(head_values))
+        self.linear(torch.concat(head_values,dim=-1))
 
 
 class AddedNormalizedAttention(torch.nn.Module):
-    def __init__(self, dimensions, dropout_value):
+    def __init__(self, layer, dimensions, dropout_value):
         super().__init__()
+        self.layer = layer
         self.norm = torch.nn.LayerNorm(dimensions)
-        self.dropput = torch.nn.Dropout(dropout_value)
+        self.dropout = torch.nn.Dropout(dropout_value)
 
     def forward(self, *tensors):
-        return self.norm(tensors[0] + self.dropout(self.sublayer(*tensors)))
+        return self.norm(tensors[0] + self.dropout(self.layer(*tensors)))
