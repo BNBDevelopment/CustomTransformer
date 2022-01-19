@@ -1,3 +1,5 @@
+import random
+
 import torch
 
 
@@ -14,15 +16,28 @@ class AttentionHead(torch.nn.Module):
         return sdp
 
     def createMask(self, lrlen, sequence_len):
-        #mask = torch.ones(1, sequence_len, sequence_len)
-        #for i in range(sequence_len):
-        #    for j in range(sequence_len):
-        #        mask[:, i, j] = 0
+        #mask = (torch.triu(torch.ones(lrlen, sequence_len)) == 1).transpose(0, 1)
+        #mask = mask.float().masked_fill(mask == 0, float('-inf')).masked_fill(mask == 1, float(0.0))
         #return mask
+        #print(mask)
 
-        mask = (torch.triu(torch.ones(lrlen, sequence_len)) == 1).transpose(0, 1)
-        mask = mask.float().masked_fill(mask == 0, float('-inf')).masked_fill(mask == 1, float(0.0))
-        return mask
+        #BigBird style random global attention tokens
+        global_tokens_r = random.sample(range(0, lrlen), 3)
+        global_tokens_c = random.sample(range(0, sequence_len), 3)
+        gt_index_pairs = []
+        for index in range(3):
+            gt_index_pairs.append((global_tokens_r[index],global_tokens_c[index]))
+
+
+        mask2 = torch.zeros(sequence_len, lrlen)
+        for i in range(0,lrlen):
+            for j in range(0, sequence_len):
+                #Exclude
+                if i < j and (i,j) not in gt_index_pairs:
+                #if i < j and i not in global_tokens_r and j not in global_tokens_c:
+                    mask2[i, j] = torch.tensor(float('-inf'))
+        return mask2
+
 
     def scaledDotProductAttention(self, Q, K, V):
         #num = torch.dot(Q, K.transpose(1,2))
@@ -69,8 +84,8 @@ class AddedNormalizedAttention(torch.nn.Module):
     def __init__(self, layer, dimensions, dropout_value):
         super().__init__()
         self.layer = layer
-        self.norm = torch.nn.LayerNorm(dimensions)
+        self.normalizer = torch.nn.LayerNorm(dimensions)
         self.dropout = torch.nn.Dropout(dropout_value)
 
     def forward(self, *tensors):
-        return self.norm(tensors[0] + self.dropout(self.layer(*tensors)))
+        return self.normalizer(tensors[0] + self.dropout(self.layer(*tensors)))

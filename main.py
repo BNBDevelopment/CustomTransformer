@@ -71,11 +71,11 @@ class Decoder(torch.nn.Module):
 
         self.linear = torch.nn.Linear(self.d_model, self.d_model)
 
-    def forward(self, target, memory):
+    def forward(self, target, layerOutput):
         seq_len, layer_count = target.size(1), target.size(2)
         target += postionalEncoding(seq_len, layer_count)
-        for layer in self.layers:
-            target = layer(target, memory)
+        for blockLayer in self.layers:
+            target = blockLayer(target, layerOutput)
 
         return torch.softmax(self.linear(target), dim=-1)
 
@@ -112,7 +112,8 @@ def position_encoding(
 def scaled_dot_product_attention(query: torch.Tensor, key: torch.Tensor, value: torch.Tensor) -> torch.Tensor:
     temp = query.bmm(key.transpose(1, 2))
     scale = query.size(-1) ** 0.5
-    softmax = torch.nn.functional.softmax(temp / scale)#, dim=-1)
+    #softmax = torch.nn.functional.softmax(temp / scale)#, dim=-1)
+    softmax = torch.softmax(temp / scale, dim=-1)
     return torch.bmm(softmax,value)#softmax.bmm(value)
 class AttentionHead(torch.nn.Module):
     def __init__(self, dim_in: int, dim_q: int, dim_k: int):
@@ -227,7 +228,7 @@ class Transformer(torch.nn.Module):
         return self.decoder(tgt, self.encoder(src))
 
 #TESTING ONLY
-source = torch.rand(64 , 32, 512)
+source = torch.rand(64 , 16, 512)
 target = torch.rand(64, 16, 512)
 tfmr = Transformer()(source, target)
 print(tfmr.shape)
