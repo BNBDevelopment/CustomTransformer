@@ -13,14 +13,14 @@ class AttentionHead(torch.nn.Module):
         sdp = self.scaledDotProductAttention(self.query(q), self.key(k), self.value(v))
         return sdp
 
-    def createMask(self, sequence_len):
+    def createMask(self, lrlen, sequence_len):
         #mask = torch.ones(1, sequence_len, sequence_len)
         #for i in range(sequence_len):
         #    for j in range(sequence_len):
         #        mask[:, i, j] = 0
         #return mask
 
-        mask = (torch.triu(torch.ones(sequence_len, sequence_len)) == 1).transpose(0, 1)
+        mask = (torch.triu(torch.ones(lrlen, sequence_len)) == 1).transpose(0, 1)
         mask = mask.float().masked_fill(mask == 0, float('-inf')).masked_fill(mask == 1, float(0.0))
         return mask
 
@@ -30,7 +30,7 @@ class AttentionHead(torch.nn.Module):
         denom = K.size(-1) ** 0.5
 
         #Should be -1 instead of two to consistently get last?
-        mask = self.createMask(Q.size(1))
+        mask = self.createMask(num.size(-1),num.size(-2))
         num = num + mask
 
         #softmax = torch.nn.softmax(num / denom)
@@ -61,7 +61,8 @@ class MultiheadAttention(torch.nn.Module):
             head_values.append(head.forward(Q, K, V))
 
         #USing concatention NOT summation
-        self.linear(torch.concat(head_values,dim=-1))
+        output = self.linear(torch.concat(head_values,dim=-1))
+        return output
 
 
 class AddedNormalizedAttention(torch.nn.Module):

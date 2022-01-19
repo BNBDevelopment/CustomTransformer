@@ -47,7 +47,7 @@ class Block(torch.nn.Module):
     def forward(self, cur_input, memory):
         cur_input = self.maskedMultiHeadAttention(target, target, target)
         cur_input = self.multiHeadAttention(cur_input, memory, memory)
-        return self.feed_forward(cur_input)
+        return self.feedForward(cur_input)
 
 
 
