@@ -1,8 +1,8 @@
 import math
 
 import torch
-from attention import AddedNormalizedAttention
-from attention import MultiheadAttention
+from attention import AddedNormalizedAttention, CrossAttention
+from attention import MultiheadSelfRandGlobalAttention
 
 #Output Embedding
 
@@ -33,20 +33,27 @@ def feed_forward(d_model, d_ff):
 
 class Block(torch.nn.Module):
 
-    def __init__(self, d_model, d_ff, num_heads, dropout, num_rand_glbl_tkns):
+    def __init__(self, d_model, d_ff, num_heads, dropout, num_rand_glbl_tkns, d_classVector):
         super().__init__()
 
         seq_dimensions = max(d_model // num_heads, 1)
 
-        self.maskedMultiHeadAttention = AddedNormalizedAttention(MultiheadAttention(num_heads, d_model, seq_dimensions, num_rand_glbl_tkns), d_model, dropout)
+        self.d_model = d_model
 
-        self.multiHeadAttention = AddedNormalizedAttention(MultiheadAttention(num_heads, d_model, seq_dimensions, num_rand_glbl_tkns), d_model, dropout)
+        self.maskedMultiheadSelfRandGlobalAttention = AddedNormalizedAttention(MultiheadSelfRandGlobalAttention(num_heads, d_model, seq_dimensions, num_rand_glbl_tkns), d_model, dropout)
+
+        self.crossAttention = AddedNormalizedAttention(CrossAttention(num_heads, d_model, seq_dimensions, d_classVector), d_model, dropout)
 
         self.feedForward = AddedNormalizedAttention(feed_forward(d_model, d_ff), d_model, dropout)
 
-    def forward(self, cur_input, memory):
-        cur_input = self.maskedMultiHeadAttention(target, target, target)
-        cur_input = self.multiHeadAttention(cur_input, memory, memory)
+    def forward(self, cur_input, prevLayerOutput, classVector):
+
+        #reshaping the class vector for later matrix manipulations
+        shaped_classVector = classVector.transpose(0,1)
+        shaped_classVector = shaped_classVector.expand(shaped_classVector.shape[0], self.d_model)
+
+        cur_input = self.maskedMultiheadSelfRandGlobalAttention(target, target, target)
+        cur_input = self.crossAttention(shaped_classVector, prevLayerOutput, prevLayerOutput)
         return self.feedForward(cur_input)
 
 
@@ -62,22 +69,22 @@ class Decoder(torch.nn.Module):
 
     num_rand_glbl_tkns = 3
 
-    def __init__(self, d_model, d_ff, num_heads, number_of_blocks, dropout):
+    def __init__(self, d_model, d_ff, num_heads, number_of_blocks, dropout, d_classVector):
         super().__init__()
 
         block_list = []
         for count in range(self.number_of_blocks):
-            block_list.append(Block(self.d_model, self.d_ff, self.num_heads, self.dropout, self.num_rand_glbl_tkns))
+            block_list.append(Block(self.d_model, self.d_ff, self.num_heads, self.dropout, self.num_rand_glbl_tkns, d_classVector))
 
         self.layers = torch.nn.ModuleList(block_list)
 
         self.linear = torch.nn.Linear(self.d_model, self.d_model)
 
-    def forward(self, target, layerOutput):
+    def forward(self, target, layerOutput, classVector):
         seq_len, layer_count = target.size(1), target.size(2)
         target += postionalEncoding(seq_len, layer_count)
         for blockLayer in self.layers:
-            target = blockLayer(target, layerOutput)
+            target = blockLayer(target, layerOutput, classVector)
 
         return torch.softmax(self.linear(target), dim=-1)
 
@@ -208,6 +215,8 @@ class Transformer(torch.nn.Module):
         num_heads: int = 6,
         dim_feedforward: int = 2048,
         dropout: float = 0.1,
+
+
         activation: torch.nn.Module = torch.nn.ReLU(),
     ):
         super().__init__()
@@ -218,19 +227,25 @@ class Transformer(torch.nn.Module):
             dim_feedforward=dim_feedforward,
             dropout=dropout,
         )
+
+        d_classVector = 10
+
+
         self.decoder = Decoder(
             number_of_blocks=num_decoder_layers,
             d_model=dim_model,
             num_heads=num_heads,
             d_ff=dim_feedforward,
             dropout=dropout,
+            d_classVector = d_classVector,
         )
 
-    def forward(self, src: torch.Tensor, tgt: torch.Tensor) -> torch.Tensor:
-        return self.decoder(tgt, self.encoder(src))
+    def forward(self, src: torch.Tensor, tgt: torch.Tensor, classVector) -> torch.Tensor:
+        return self.decoder(tgt, self.encoder(src), classVector)
 
 #TESTING ONLY
+classVector = torch.rand(1, 10)
 source = torch.rand(64 , 16, 512)
 target = torch.rand(64, 16, 512)
-tfmr = Transformer()(source, target)
+tfmr = Transformer()(source, target, classVector)
 print(tfmr.shape)

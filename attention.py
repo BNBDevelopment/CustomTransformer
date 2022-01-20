@@ -47,7 +47,7 @@ class AttentionHead(torch.nn.Module):
 
 
 
-class MultiheadAttention(torch.nn.Module):
+class MultiheadSelfRandGlobalAttention(torch.nn.Module):
 
 
     def __init__(self, number_of_heads, model_dimensions, seq_dimensions, num_rand_glbl_tkns):
@@ -80,3 +80,68 @@ class AddedNormalizedAttention(torch.nn.Module):
 
     def forward(self, *tensors):
         return self.normalizer(tensors[0] + self.dropout(self.layer(*tensors)))
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+torch.nn.MultiheadAttention
+
+class CrossAttentionHead(torch.nn.Module):
+    def __init__(self, dim_in, dim_q, dim_k):
+        super().__init__()
+        self.query = torch.nn.Linear(dim_in, dim_q)
+        self.key = torch.nn.Linear(dim_in, dim_k)
+        self.value = torch.nn.Linear(dim_in, dim_k)
+
+
+    def forward(self, q, k, v):
+        sdp = self.scaledDotProductAttention(self.query(q), self.key(k), self.value(v))
+        return sdp
+
+
+    def scaledDotProductAttention(self, Q, K, V):
+        num = torch.matmul(Q, K.transpose(1,2))
+        denom = K.size(-1) ** 0.5
+        softmax = torch.nn.functional.softmax(num/denom, dim=-1)
+        attentionQKV = torch.matmul(softmax, V)
+        return attentionQKV
+
+class CrossAttention(torch.nn.Module):
+
+    def __init__(self, number_of_heads, model_dimensions, seq_dimensions, d_classVector):
+        super().__init__()
+
+
+        attentionHeads = []
+        for i in range(number_of_heads):
+            attentionHeads.append(CrossAttentionHead(model_dimensions, seq_dimensions, seq_dimensions))
+        self.heads = torch.nn.ModuleList(attentionHeads)
+
+        self.linear = torch.nn.Linear(number_of_heads * seq_dimensions, model_dimensions)
+
+    def forward(self, Q, K, V):
+        head_values = []
+        for head in self.heads:
+            head_values.append(head.forward(Q, K, V))
+
+        #USing concatention NOT summation
+        output = self.linear(torch.concat(head_values,dim=-1))
+        return output
