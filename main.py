@@ -33,16 +33,16 @@ def feed_forward(d_model, d_ff):
 
 class Block(torch.nn.Module):
 
-    def __init__(self, d_model, d_ff, num_heads, dropout, num_rand_glbl_tkns, d_classVector):
+    def __init__(self, d_model, d_ff, num_heads, dropout, num_rand_glbl_tkns):
         super().__init__()
 
         seq_dimensions = max(d_model // num_heads, 1)
-
         self.d_model = d_model
 
+        #Block Components Below
         self.maskedMultiheadSelfRandGlobalAttention = AddedNormalizedAttention(MultiheadSelfRandGlobalAttention(num_heads, d_model, seq_dimensions, num_rand_glbl_tkns), d_model, dropout)
 
-        self.crossAttention = AddedNormalizedAttention(CrossAttention(num_heads, d_model, seq_dimensions, d_classVector), d_model, dropout)
+        self.crossAttention = AddedNormalizedAttention(CrossAttention(num_heads, d_model, seq_dimensions), d_model, dropout)
 
         self.feedForward = AddedNormalizedAttention(feed_forward(d_model, d_ff), d_model, dropout)
 
@@ -52,13 +52,14 @@ class Block(torch.nn.Module):
         shaped_classVector = classVector.transpose(0,1)
         shaped_classVector = shaped_classVector.expand(shaped_classVector.shape[0], self.d_model)
 
-        cur_input = self.maskedMultiheadSelfRandGlobalAttention(target, target, target)
+        prevLayerOutput = self.maskedMultiheadSelfRandGlobalAttention(cur_input, cur_input, cur_input)
         cur_input = self.crossAttention(shaped_classVector, prevLayerOutput, prevLayerOutput)
         return self.feedForward(cur_input)
 
 
 
 class Decoder(torch.nn.Module):
+    #Hyperparams as per AIAYN
     d_model = 512
     d_ff = 2048
 
@@ -69,24 +70,30 @@ class Decoder(torch.nn.Module):
 
     num_rand_glbl_tkns = 3
 
-    def __init__(self, d_model, d_ff, num_heads, number_of_blocks, dropout, d_classVector):
+    def __init__(self, d_model, d_ff, num_heads, number_of_blocks, dropout):
         super().__init__()
 
+        #Initialize the blocks
         block_list = []
         for count in range(self.number_of_blocks):
-            block_list.append(Block(self.d_model, self.d_ff, self.num_heads, self.dropout, self.num_rand_glbl_tkns, d_classVector))
-
+            block_list.append(Block(self.d_model, self.d_ff, self.num_heads, self.dropout, self.num_rand_glbl_tkns))
         self.layers = torch.nn.ModuleList(block_list)
 
+        #Initialize final linear layer
         self.linear = torch.nn.Linear(self.d_model, self.d_model)
 
-    def forward(self, target, layerOutput, classVector):
-        seq_len, layer_count = target.size(1), target.size(2)
-        target += postionalEncoding(seq_len, layer_count)
-        for blockLayer in self.layers:
-            target = blockLayer(target, layerOutput, classVector)
+    def forward(self, input, layerOutput, classVector):
+        #Class vector is only used for cross attention mechanism
+        #MNIST class vector dimensions = 10?
+        seq_len = input.size(1)
+        layer_count = input.size(2)
 
-        return torch.softmax(self.linear(target), dim=-1)
+        #Push forward through blocks, updating input after each step
+        input = input + postionalEncoding(seq_len, layer_count)
+        for blockLayer in self.layers:
+            input = blockLayer(input, layerOutput, classVector)
+
+        return torch.softmax(self.linear(input), dim=-1)
 
 
 
@@ -237,7 +244,6 @@ class Transformer(torch.nn.Module):
             num_heads=num_heads,
             d_ff=dim_feedforward,
             dropout=dropout,
-            d_classVector = d_classVector,
         )
 
     def forward(self, src: torch.Tensor, tgt: torch.Tensor, classVector) -> torch.Tensor:
