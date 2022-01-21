@@ -1,3 +1,5 @@
+import PIL
+import numpy
 import torch
 import torch.nn as nn
 import torchvision.transforms as transforms
@@ -5,6 +7,7 @@ import torch.optim as optim
 import torchvision.datasets as datasets
 import imageio
 from torch.utils.data import DataLoader
+import matplotlib.pyplot as plt
 
 from decoder import Decoder
 
@@ -89,5 +92,19 @@ for epoch in range(epochs):
 
 imgs = images[-1]
 imgs = imgs.view(-1, 1, 28, 28)
-imageio.mimsave('generator_images.gif', torch.squeeze(imgs))
+imgs = torch.squeeze(imgs)
+imgs = imgs*255
+imgs = numpy.array(imgs, dtype=numpy.uint8)
+imageio.mimsave('generator_images.gif', imgs)
+
+#def convert_image_np(inp):
+    #"""Convert a Tensor to numpy image."""
+    #inp = inp * 255
+    #inp = numpy.array(inp, dtype=numpy.uint8)
+#    return PIL.Image.fromarray(inp)
+
+#test = convert_image_np(imgs)
+
+plt.imshow(imgs)
+plt.show()
 

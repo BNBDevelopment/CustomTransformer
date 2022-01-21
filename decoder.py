@@ -117,6 +117,8 @@ class Decoder(torch.nn.Module):
         #Initialize final linear layer
         self.linear = torch.nn.Linear(self.d_model, 784)
 
+        #SOFTMAX
+
 
     #tgt, memory, tgt_mask=tgt_mask, memory_mask=memory_mask,
     #tgt_key_padding_mask=tgt_key_padding_mask,
@@ -143,5 +145,6 @@ class Decoder(torch.nn.Module):
         for blockLayer in self.layers:
             input = blockLayer(input, layerOutput, classVector)
 
-        return torch.softmax(self.linear(input), dim=-1)
+        #return torch.softmax(self.linear(input), dim=-1)
+        return torch.nn.functional.softmax(self.linear(input), dim=-1)
 
