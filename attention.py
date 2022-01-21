@@ -32,7 +32,7 @@ class AttentionHead(torch.nn.Module):
 
     def scaledDotProductAttention(self, Q, K, V, num_rand_glbl_tkns):
         #Scaled Dot Product formula as per AIAYN
-        num = torch.matmul(Q, K.transpose(1,2))
+        num = torch.matmul(Q.transpose(1,2), K)
         denom = K.size(-1) ** 0.5
 
         #Create and apply masking
@@ -40,7 +40,7 @@ class AttentionHead(torch.nn.Module):
         num = num + mask
 
         softmax = torch.nn.functional.softmax(num/denom, dim=-1)
-        attentionQKV = torch.matmul(softmax, V)
+        attentionQKV = torch.matmul(softmax, V.transpose(1,2))
         return attentionQKV
 
 
@@ -66,7 +66,11 @@ class MultiheadSelfRandGlobalAttention(torch.nn.Module):
             head_values.append(head.forward(Q, K, V))
 
         #Concatenating attention head layers together, then putting them through Linear layer as per AIAYN
-        output = self.linear(torch.concat(head_values,dim=-1))
+        shapedConcat = torch.concat(head_values,dim=1)
+        shapedConcat = torch.transpose(shapedConcat, 0, -1)
+        shapedConcat = torch.transpose(shapedConcat, 1, -1)
+        output = self.linear(shapedConcat)
+        #output = self.linear(torch.concat(head_values,dim=1))
         return output
 
 
@@ -81,7 +85,14 @@ class AddedNormalizedAttention(torch.nn.Module):
 
 
     def forward(self, *tensors):
-        return self.normalizer(tensors[0] + self.dropout(self.layer(*tensors)))
+        after_dropout = self.dropout(self.layer(*tensors))
+        cur_matrix = tensors[0]
+
+        #keeping shape consistent between two attention types
+        if cur_matrix.size(0) == after_dropout.size(1) and cur_matrix.size(1) == after_dropout.size(0):
+            after_dropout = after_dropout.transpose(0,1)
+
+        return self.normalizer(cur_matrix + after_dropout)
 
 
 
@@ -132,7 +143,7 @@ class CrossAttention(torch.nn.Module):
 
         #Concatenating attention head layers together, then putting them through Linear layer as per AIAYN
         shapedConcat = torch.concat(head_values,dim=-1)
-        shapedConcat = torch.reshape(shapedConcat, (510, 128, 10))
+        shapedConcat = torch.reshape(shapedConcat, (510, shapedConcat.size(1), 10))
         shapedConcat = torch.transpose(shapedConcat, 0, -1)
         output = self.linear(shapedConcat)
         #output = self.linear(torch.concat(head_values,dim=-1))

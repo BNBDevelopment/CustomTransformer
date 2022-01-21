@@ -11,7 +11,7 @@ from decoder import Decoder
 batch_size = 512
 epochs = 2
 sample_size = 10 # fixed sample size
-nz = 128 # latent vector size
+nz = 1 # size of generator input
 k = 1 # number of steps to apply to the discriminator
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
