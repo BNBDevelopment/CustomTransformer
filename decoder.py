@@ -10,15 +10,15 @@ from attention import MultiheadSelfRandGlobalAttention
 
 
 #Positional Encoding
-def postionalEncoding(sequence_len, layer_count):
-    pos_encoding_vector = torch.zeros(sequence_len, layer_count)
+def postionalEncoding(sequence_len, d_model):
+    pos_encoding_vector = torch.zeros(sequence_len, d_model)
 
     for position in range(sequence_len):
-        for i in range(layer_count):
+        for i in range(d_model):
             if i % 2 == 0:
-                pos_encoding_vector[position, i] = math.sin(position / (10000 ** (2 * i / layer_count)))
+                pos_encoding_vector[position, i] = math.sin(position / (10000 ** (2 * i / d_model)))
             else:
-                pos_encoding_vector[position, i] = math.cos(position / (10000 ** (2 * i / layer_count)))
+                pos_encoding_vector[position, i] = math.cos(position / (10000 ** (2 * i / d_model)))
 
     return pos_encoding_vector
 
@@ -32,18 +32,21 @@ def feed_forward(d_model, d_ff):
 
 #Output Embedding
 class OutputEmbedder(torch.nn.Module):
-    def __init__(self, num_embeddings, d_model):
+    def __init__(self, d_in, embedding_size, d_model):
         #Default call
         super().__init__()
 
         #PyTorch has an embedder function built in
         #self.embed = torch.nn.Embedding(num_embeddings, d_model)
 
-        self.embed = torch.nn.Linear(d_model, num_embeddings)
+        self.embed_a = torch.nn.Linear(d_in, embedding_size)
+        self.embed_b = torch.nn.Linear(1, d_model)
 
     def forward(self, outputs):
         #Per AIAYN "We also use the usual learned linear transformation [and softmax function] to convert the decoder output"
-        return torch.softmax(self.embed(outputs), dim=-1)
+        first = self.embed_a(outputs)
+        second = self.embed_b(first.unsqueeze(-1))
+        return torch.softmax(second, dim=-1)
 
 
 class Block(torch.nn.Module):
@@ -64,12 +67,12 @@ class Block(torch.nn.Module):
     def forward(self, cur_input, prevLayerOutput, classVector):
 
         #reshaping the class vector for later matrix manipulations
-        shaped_classVector = classVector.transpose(0,1)
+        #shaped_classVector = classVector.transpose(0,1)
         #shaped_classVector = shaped_classVector.expand(shaped_classVector.shape[0], self.d_model)
-        shaped_classVector = shaped_classVector.expand(self.d_model, shaped_classVector.shape[1])
+        #shaped_classVector = shaped_classVector.expand(self.d_model, shaped_classVector.shape[1])
 
         #shaped_classVector2 = classVector.transpose(0, 1)
-        shaped_classVector2 = classVector.expand(classVector.shape[0], self.d_model)
+        #shaped_classVector2 = classVector.expand(classVector.shape[0], self.d_model)
 
 
         #prevBlockOutput = self.maskedMultiheadSelfRandGlobalAttention(cur_input, cur_input, cur_input)
@@ -80,8 +83,14 @@ class Block(torch.nn.Module):
         #cur_input = self.crossAttention(shaped_classVector, prevBlockOutput, prevBlockOutput)
 
         #cur_input = self.crossAttention(prevBlockOutput, shaped_classVector, shaped_classVector)
-        cur_input = self.crossAttention(prevBlockOutput, shaped_classVector2, shaped_classVector2)
-        return self.feedForward(cur_input)
+        #cur_input = self.crossAttention(prevBlockOutput, shaped_classVector2, shaped_classVector2)
+
+
+        #TODO; restore this
+        #cur_input = self.crossAttention(prevBlockOutput, classVector, classVector)
+        #return self.feedForward(cur_input)
+
+        return prevBlockOutput
 
 
 
@@ -90,6 +99,8 @@ class Decoder(torch.nn.Module):
     d_model = 512
     d_ff = 2048
     dropout = 0.1
+    sequence_length = 784
+    class_vector_length = 10
 
     #Custom Hyper Params
     num_heads = 6
@@ -106,7 +117,8 @@ class Decoder(torch.nn.Module):
         self.number_of_blocks = number_of_blocks
         self.cross_dimensions = cross_dimensions
 
-        self.outputEmbedder = OutputEmbedder(d_model, d_model)
+        #TODO: check this
+        self.outputEmbedder = OutputEmbedder(self.class_vector_length, self.sequence_length, d_model)
 
         #Initialize the blocks
         block_list = []
@@ -115,36 +127,29 @@ class Decoder(torch.nn.Module):
         self.layers = torch.nn.ModuleList(block_list)
 
         #Initialize final linear layer
-        self.linear = torch.nn.Linear(self.d_model, 784)
+        self.linear = torch.nn.Linear(self.d_model, self.d_model)
 
-        #SOFTMAX
+        #TODO #SOFTMAX
 
 
-    #tgt, memory, tgt_mask=tgt_mask, memory_mask=memory_mask,
-    #tgt_key_padding_mask=tgt_key_padding_mask,
-    #memory_key_padding_mask=memory_key_padding_mask
 
-    #def forward(self, input, layerOutput, classVector):
-    def forward(self, tgt, memory, tgt_mask = None,
-                    memory_mask = None, tgt_key_padding_mask = None,
-                    memory_key_padding_mask = None):
+    def forward(self, classVector):
 
-        #hijacking parameters to allow for integration into PyTorch infrustructure
-        input = tgt
-        layerOutput = memory
-        classVector = tgt_mask
+        #seq_len = input.size(1)
+        #layer_count = input.size(2)
 
-        #Class vector is only used for cross attention mechanism
-        #MNIST class vector dimensions = 10?
-        seq_len = input.size(1)
-        layer_count = input.size(2)
+        seq_len = 784
 
+        torch.nn.TransformerDecoder
         #Push forward through blocks, updating input after each step
-        input = self.outputEmbedder(input)
-        input = input + postionalEncoding(seq_len, layer_count)
+        m_input = self.outputEmbedder(classVector)
+        m_input = m_input + postionalEncoding(seq_len, self.d_model)
+        output = m_input
+
         for blockLayer in self.layers:
-            input = blockLayer(input, layerOutput, classVector)
+            output = blockLayer(output, m_input, classVector)
 
         #return torch.softmax(self.linear(input), dim=-1)
-        return torch.nn.functional.softmax(self.linear(input), dim=-1)
+        out_probs = torch.nn.functional.softmax(self.linear(output), dim=-1)
+        return out_probs
 

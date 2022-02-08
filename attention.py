@@ -1,6 +1,7 @@
 import random
 import torch
 
+global_tokens = None
 
 class AttentionHead(torch.nn.Module):
     def __init__(self, dim_in, dim_q, dim_k, num_rand_glbl_tkns):
@@ -15,10 +16,13 @@ class AttentionHead(torch.nn.Module):
         sdp = self.scaledDotProductAttention(self.query(q), self.key(k), self.value(v), self.num_rand_glbl_tkns)
         return sdp
 
-
+    #TODO: Fix masking
     def createMask(self, lrlen, sequence_len, num_rand_glbl_tkns):
         #BigBird style random global attention tokens
-        global_tokens = random.sample(range(0, lrlen), num_rand_glbl_tkns)
+        global global_tokens
+
+        if global_tokens == None:
+            global_tokens = random.sample(range(0, lrlen), num_rand_glbl_tkns)
 
         mask = torch.zeros(sequence_len, lrlen)
         for i in range(0,lrlen):
@@ -27,6 +31,10 @@ class AttentionHead(torch.nn.Module):
                 #Global tokens are attended to and attend to all other tokens
                 if i < j and i not in global_tokens and j not in global_tokens:
                     mask[i, j] = torch.tensor(float('-inf'))
+        return mask
+
+        mask = (torch.triu(torch.ones(sequence_len, sequence_len)) == 1).transpose(0, 1)
+        mask = mask.float().masked_fill(mask == 0, float('-inf')).masked_fill(mask == 1, float(0.0))
         return mask
 
 
