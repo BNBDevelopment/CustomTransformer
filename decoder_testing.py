@@ -7,6 +7,11 @@ from torchvision import datasets, transforms
 
 from decoder import Decoder
 
+using_device = 'cpu'
+if torch.cuda.is_available():
+    using_device = 'cuda'
+device = torch.device(using_device)
+#torch.zeros(1).cuda()
 
 ####################################
 num_encoder_layers: int = 6
@@ -15,12 +20,12 @@ dim_model: int = 510 # Cant be 512 - 6 heads were requested, d_model must be eve
 num_heads: int = 6
 dim_feedforward: int = 2048
 dropout: float = 0.1
-cross_dimensions = 10
+cross_dimensions = 32
 
 ###################################
 num_epochs = 10
 sequence_length = 784
-batch_size = 10 #TODO 784 #AIAYN "...batched together by approximate sequence length..."
+batch_size = 32 #TODO 784 #AIAYN "...batched together by approximate sequence length..."
 
 decoder = Decoder(number_of_blocks=num_decoder_layers,
             d_model=dim_model,
@@ -29,6 +34,7 @@ decoder = Decoder(number_of_blocks=num_decoder_layers,
             dropout=dropout,
             cross_dimensions=cross_dimensions)
 
+decoder#.to(device)
 
 transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))])
 training_data = datasets.MNIST(root='../input/data', download=True, train=True, transform=transform)
