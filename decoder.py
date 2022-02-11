@@ -65,32 +65,19 @@ class Block(torch.nn.Module):
         self.feedForward = AddedNormalizedAttention(feed_forward(d_model, d_ff), d_model, dropout)
 
     def forward(self, cur_input, prevLayerOutput, classVector):
-
-        #reshaping the class vector for later matrix manipulations
-        #shaped_classVector = classVector.transpose(0,1)
-        #shaped_classVector = shaped_classVector.expand(shaped_classVector.shape[0], self.d_model)
-        #shaped_classVector = shaped_classVector.expand(self.d_model, shaped_classVector.shape[1])
-
-        #shaped_classVector2 = classVector.transpose(0, 1)
-        #shaped_classVector2 = classVector.expand(classVector.shape[0], self.d_model)
-
-
-        #prevBlockOutput = self.maskedMultiheadSelfRandGlobalAttention(cur_input, cur_input, cur_input)
         prevBlockOutput = self.maskedMultiheadSelfRandGlobalAttention(cur_input, prevLayerOutput, prevLayerOutput)
 
         #Per AIAYN, "queries come from the previous decoder layer" and "memory keys and values come from the output of the encoder"
         #Should have Q = prev block output, K and V = "cross attention piece" = shaped_classVector?
-        #cur_input = self.crossAttention(shaped_classVector, prevBlockOutput, prevBlockOutput)
-
-        #cur_input = self.crossAttention(prevBlockOutput, shaped_classVector, shaped_classVector)
-        #cur_input = self.crossAttention(prevBlockOutput, shaped_classVector2, shaped_classVector2)
 
 
         #TODO; restore this
+        classVector = classVector.unsqueeze(-1)
         #cur_input = self.crossAttention(prevBlockOutput, classVector, classVector)
-        #return self.feedForward(cur_input)
+        cur_input = self.crossAttention(prevBlockOutput, classVector, classVector)
+        return self.feedForward(cur_input)
 
-        return prevBlockOutput
+        #return prevBlockOutput
 
 
 

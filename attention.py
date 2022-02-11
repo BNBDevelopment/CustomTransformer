@@ -24,23 +24,17 @@ class AttentionHead(torch.nn.Module):
         if global_tokens == None:
             global_tokens = random.sample(range(0, lrlen), num_rand_glbl_tkns)
 
-        mask = torch.zeros(sequence_len, lrlen)
-        for i in range(0,lrlen):
-            for j in range(0, sequence_len):
-                #Do not mask the random global attention tokens
-                #Global tokens are attended to and attend to all other tokens
-                if i < j and i not in global_tokens and j not in global_tokens:
-                    mask[i, j] = torch.tensor(float('-inf'))
-        return mask
-
-        mask = (torch.triu(torch.ones(sequence_len, sequence_len)) == 1).transpose(0, 1)
-        mask = mask.float().masked_fill(mask == 0, float('-inf')).masked_fill(mask == 1, float(0.0))
+        mask = torch.triu(torch.ones(sequence_len, sequence_len)).transpose(0, 1)
+        mask = mask.masked_fill(mask == 0, float('-inf')).masked_fill(mask == 1, float(0.0))
+        for selected_global_token in global_tokens:
+            mask[:,selected_global_token] = float(0.0)
+            mask[selected_global_token,:] = float(0.0)
         return mask
 
 
     def scaledDotProductAttention(self, Q, K, V, num_rand_glbl_tkns):
         #Scaled Dot Product formula as per AIAYN
-        num = torch.matmul(Q.transpose(1,2), K)
+        num = torch.matmul(Q, K.transpose(1,-1))
         denom = K.size(-1) ** 0.5
 
         #Create and apply masking
@@ -48,7 +42,7 @@ class AttentionHead(torch.nn.Module):
         num = num + mask
 
         softmax = torch.nn.functional.softmax(num/denom, dim=-1)
-        attentionQKV = torch.matmul(softmax, V.transpose(1,2))
+        attentionQKV = torch.matmul(softmax, V)
         return attentionQKV
 
 
@@ -74,11 +68,9 @@ class MultiheadSelfRandGlobalAttention(torch.nn.Module):
             head_values.append(head.forward(Q, K, V))
 
         #Concatenating attention head layers together, then putting them through Linear layer as per AIAYN
-        shapedConcat = torch.concat(head_values,dim=1)
-        shapedConcat = torch.transpose(shapedConcat, 0, -1)
-        shapedConcat = torch.transpose(shapedConcat, 1, -1)
+        shapedConcat = torch.concat(head_values,dim=-1)
         output = self.linear(shapedConcat)
-        #output = self.linear(torch.concat(head_values,dim=1))
+
         return output
 
 
@@ -110,8 +102,8 @@ class CrossAttentionHead(torch.nn.Module):
         super().__init__()
 
         self.query = torch.nn.Linear(dim_in, dim_q)
-        self.key = torch.nn.Linear(dim_in, dim_k)
-        self.value = torch.nn.Linear(dim_in, dim_k)
+        self.key = torch.nn.Linear(1, dim_q)
+        self.value = torch.nn.Linear(1, dim_q)
 
 
     def forward(self, q, k, v):
@@ -121,7 +113,7 @@ class CrossAttentionHead(torch.nn.Module):
 
     def scaledDotProductAttention(self, Q, K, V):
         # Scaled Dot Product formula as per AIAYN
-        num = torch.matmul(Q.transpose(0,-1), K)
+        num = torch.matmul(Q, K.transpose(1,-1))
         denom = K.size(-1) ** 0.5
         softmax = torch.nn.functional.softmax(num/denom, dim=-1)
         attentionQKV = torch.matmul(softmax, V)
@@ -151,8 +143,6 @@ class CrossAttention(torch.nn.Module):
 
         #Concatenating attention head layers together, then putting them through Linear layer as per AIAYN
         shapedConcat = torch.concat(head_values,dim=-1)
-        shapedConcat = torch.reshape(shapedConcat, (510, shapedConcat.size(1), 10))
-        shapedConcat = torch.transpose(shapedConcat, 0, -1)
         output = self.linear(shapedConcat)
         #output = self.linear(torch.concat(head_values,dim=-1))
         return output

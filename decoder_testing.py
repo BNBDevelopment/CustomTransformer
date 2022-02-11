@@ -1,3 +1,5 @@
+from datetime import datetime
+
 import PIL
 import numpy
 import torch
@@ -26,6 +28,7 @@ cross_dimensions = 32
 num_epochs = 10
 sequence_length = 784
 batch_size = 32 #TODO 784 #AIAYN "...batched together by approximate sequence length..."
+warmup_steps = 4000
 
 decoder = Decoder(number_of_blocks=num_decoder_layers,
             d_model=dim_model,
@@ -42,8 +45,7 @@ training_data = datasets.MNIST(root='../input/data', download=True, train=True, 
 
 training_data_loader = torch.utils.data.DataLoader(training_data, batch_size=batch_size, shuffle=True)
 
-#TODO fix learning rate/ optimzer:::   page7: We used the Adam optimizer [20] with...
-optimizer = optim.Adam(decoder.parameters(), lr=1e-3, betas=(0.9, 0.98), eps=1e-9)
+
 
 #decoder.train()
 #criterion = torch.nn.BCELoss()
@@ -59,13 +61,28 @@ def scaleImage(array_vals):
 
     return array_vals * 255
 
+
+# Learning rate/ optimzer:::   page7: We used the Adam optimizer [20] with...
+
+#Learning rate default values - see AIAYN implementation in steps below
+optimizer = optim.Adam(decoder.parameters(), lr=0.0001, betas=(0.9, 0.98), eps=1e-9)
+
 for epoch in range(num_epochs):
+    epoch += 1
     print("Epoch: " + str(epoch))
     train_loss = 0
     decoder.train()
 
     for batch_number, data in enumerate(training_data_loader, 0):
-        print("Batch: " + str(batch_number))
+        batch_number += 1
+        print("Batch: " + str(batch_number) + "\t\t Current Time: " + str(datetime.now().strftime("%H:%M:%S")))
+
+        #learning_rate = 0.0001
+        learning_rate = dim_model ** (-.5) * min((batch_number * batch_size * epoch) ** (-.5), (batch_number * batch_size * epoch) * (warmup_steps ** (-1.5)))
+        for param_group in optimizer.param_groups:
+            param_group['lr'] = learning_rate
+        print("learning rate: " + str(learning_rate))
+
         optimizer.zero_grad()
 
         classVectors = torch.zeros(data[1].shape[0], 10)
