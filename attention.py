@@ -2,6 +2,7 @@ import random
 import torch
 
 global_tokens = None
+mask = None
 
 class AttentionHead(torch.nn.Module):
     def __init__(self, dim_in, dim_q, dim_k, num_rand_glbl_tkns):
@@ -38,7 +39,9 @@ class AttentionHead(torch.nn.Module):
         denom = K.size(-1) ** 0.5
 
         #Create and apply masking
-        mask = self.createMask(num.size(-1),num.size(-2), num_rand_glbl_tkns)
+        global mask
+        if mask == None:
+            mask = self.createMask(num.size(-1),num.size(-2), num_rand_glbl_tkns)
         num = num + mask
 
         softmax = torch.nn.functional.softmax(num/denom, dim=-1)
@@ -97,13 +100,13 @@ class AddedNormalizedAttention(torch.nn.Module):
 
 
 class CrossAttentionHead(torch.nn.Module):
-    def __init__(self, dim_in, dim_q, dim_k):
+    def __init__(self, dim_in, dim_q):
         # Default call
         super().__init__()
 
         self.query = torch.nn.Linear(dim_in, dim_q)
-        self.key = torch.nn.Linear(1, dim_q)
-        self.value = torch.nn.Linear(1, dim_q)
+        self.key = torch.nn.Linear(dim_in, dim_q)
+        self.value = torch.nn.Linear(dim_in, dim_q)
 
 
     def forward(self, q, k, v):
@@ -113,7 +116,7 @@ class CrossAttentionHead(torch.nn.Module):
 
     def scaledDotProductAttention(self, Q, K, V):
         # Scaled Dot Product formula as per AIAYN
-        num = torch.matmul(Q, K.transpose(1,-1))
+        num = torch.matmul(Q, K.transpose(0,-1))
         denom = K.size(-1) ** 0.5
         softmax = torch.nn.functional.softmax(num/denom, dim=-1)
         attentionQKV = torch.matmul(softmax, V)
@@ -122,14 +125,14 @@ class CrossAttentionHead(torch.nn.Module):
 
 
 class CrossAttention(torch.nn.Module):
-    def __init__(self, number_of_heads, model_dimensions, seq_dimensions, cross_dimensions):
+    def __init__(self, number_of_heads, model_dimensions, seq_dimensions):
         # Default call
         super().__init__()
 
         #Create desired number of attention heads
         attentionHeads = []
         for i in range(number_of_heads):
-            attentionHeads.append(CrossAttentionHead(model_dimensions, seq_dimensions, cross_dimensions))
+            attentionHeads.append(CrossAttentionHead(model_dimensions, seq_dimensions))
         self.heads = torch.nn.ModuleList(attentionHeads)
 
         self.linear = torch.nn.Linear(number_of_heads * seq_dimensions, model_dimensions)

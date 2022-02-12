@@ -6,19 +6,21 @@ from attention import CrossAttention
 from attention import MultiheadSelfRandGlobalAttention
 
 
-
+pos_encoding_vector = None
 
 
 #Positional Encoding
 def postionalEncoding(sequence_len, d_model):
-    pos_encoding_vector = torch.zeros(sequence_len, d_model)
+    global pos_encoding_vector
+    if pos_encoding_vector == None:
+        pos_encoding_vector = torch.zeros(sequence_len, d_model)
 
-    for position in range(sequence_len):
-        for i in range(d_model):
-            if i % 2 == 0:
-                pos_encoding_vector[position, i] = math.sin(position / (10000 ** (2 * i / d_model)))
-            else:
-                pos_encoding_vector[position, i] = math.cos(position / (10000 ** (2 * i / d_model)))
+        for position in range(sequence_len):
+            for i in range(d_model):
+                if i % 2 == 0:
+                    pos_encoding_vector[position, i] = math.sin(position / (10000 ** (2 * i / d_model)))
+                else:
+                    pos_encoding_vector[position, i] = math.cos(position / (10000 ** (2 * i / d_model)))
 
     return pos_encoding_vector
 
@@ -32,26 +34,22 @@ def feed_forward(d_model, d_ff):
 
 #Output Embedding
 class OutputEmbedder(torch.nn.Module):
-    def __init__(self, d_in, embedding_size, d_model):
+    def __init__(self, d_in, d_model):
         #Default call
         super().__init__()
 
         #PyTorch has an embedder function built in
         #self.embed = torch.nn.Embedding(num_embeddings, d_model)
-
-        self.embed_a = torch.nn.Linear(d_in, embedding_size)
-        self.embed_b = torch.nn.Linear(1, d_model)
+        self.embed_a = torch.nn.Linear(d_in, d_model)
 
     def forward(self, outputs):
         #Per AIAYN "We also use the usual learned linear transformation [and softmax function] to convert the decoder output"
-        first = self.embed_a(outputs)
-        second = self.embed_b(first.unsqueeze(-1))
-        return torch.softmax(second, dim=-1)
+        return torch.softmax(self.embed_a(outputs), dim=-1)
 
 
 class Block(torch.nn.Module):
 
-    def __init__(self, d_model, d_ff, num_heads, dropout, num_rand_glbl_tkns, cross_dimensions):
+    def __init__(self, d_model, d_ff, num_heads, dropout, num_rand_glbl_tkns):
         super().__init__()
 
         seq_dimensions = max(d_model // num_heads, 1)
@@ -60,21 +58,23 @@ class Block(torch.nn.Module):
         #Block Components Below
         self.maskedMultiheadSelfRandGlobalAttention = AddedNormalizedAttention(MultiheadSelfRandGlobalAttention(num_heads, d_model, seq_dimensions, num_rand_glbl_tkns), d_model, dropout)
 
-        self.crossAttention = AddedNormalizedAttention(CrossAttention(num_heads, d_model, seq_dimensions, cross_dimensions), d_model, dropout)
+        self.crossAttention = AddedNormalizedAttention(CrossAttention(num_heads, d_model, seq_dimensions), d_model, dropout)
 
         self.feedForward = AddedNormalizedAttention(feed_forward(d_model, d_ff), d_model, dropout)
 
-    def forward(self, cur_input, prevLayerOutput, classVector):
-        prevBlockOutput = self.maskedMultiheadSelfRandGlobalAttention(cur_input, prevLayerOutput, prevLayerOutput)
+        self.class_vector_embedder = torch.nn.Linear(10, d_model)
+
+    def forward(self, cur_input, classVector):
+        prevBlockOutput = self.maskedMultiheadSelfRandGlobalAttention(cur_input, cur_input, cur_input)
 
         #Per AIAYN, "queries come from the previous decoder layer" and "memory keys and values come from the output of the encoder"
         #Should have Q = prev block output, K and V = "cross attention piece" = shaped_classVector?
 
 
         #TODO; restore this
-        classVector = classVector.unsqueeze(-1)
         #cur_input = self.crossAttention(prevBlockOutput, classVector, classVector)
-        cur_input = self.crossAttention(prevBlockOutput, classVector, classVector)
+        stretched_class_vector = self.class_vector_embedder(classVector)
+        cur_input = self.crossAttention(prevBlockOutput, stretched_class_vector, stretched_class_vector)
         return self.feedForward(cur_input)
 
         #return prevBlockOutput
@@ -105,12 +105,12 @@ class Decoder(torch.nn.Module):
         self.cross_dimensions = cross_dimensions
 
         #TODO: check this
-        self.outputEmbedder = OutputEmbedder(self.class_vector_length, self.sequence_length, d_model)
+        self.outputEmbedder = OutputEmbedder(1, d_model)
 
         #Initialize the blocks
         block_list = []
         for count in range(self.number_of_blocks):
-            block_list.append(Block(self.d_model, self.d_ff, self.num_heads, self.dropout, self.num_rand_glbl_tkns, self.cross_dimensions))
+            block_list.append(Block(self.d_model, self.d_ff, self.num_heads, self.dropout, self.num_rand_glbl_tkns))
         self.layers = torch.nn.ModuleList(block_list)
 
         #Initialize final linear layer
@@ -120,21 +120,16 @@ class Decoder(torch.nn.Module):
 
 
 
-    def forward(self, classVector):
-
-        #seq_len = input.size(1)
-        #layer_count = input.size(2)
-
+    def forward(self, in_image, classVector):
         seq_len = 784
 
-        torch.nn.TransformerDecoder
         #Push forward through blocks, updating input after each step
-        m_input = self.outputEmbedder(classVector)
+        m_input = self.outputEmbedder(in_image.unsqueeze(-1))
         m_input = m_input + postionalEncoding(seq_len, self.d_model)
         output = m_input
 
         for blockLayer in self.layers:
-            output = blockLayer(output, m_input, classVector)
+            output = blockLayer(output, classVector)
 
         #return torch.softmax(self.linear(input), dim=-1)
         out_probs = torch.nn.functional.softmax(self.linear(output), dim=-1)
